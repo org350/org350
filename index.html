@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>一轮月，万家灯 · 交互式漫画</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; }
+  body {
+    background:
+      radial-gradient(1200px 800px at 78% -8%, rgba(245,199,106,0.12), transparent 62%),
+      radial-gradient(900px 700px at 8% 112%, rgba(32,60,120,0.35), transparent 62%),
+      linear-gradient(180deg,#050a16 0%,#0b1226 45%,#15264b 100%);
+    display:flex; align-items:center; justify-content:center;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    overflow:hidden; user-select:none;
+  }
+  .stars { position:fixed; inset:0; pointer-events:none; }
+  .star { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:0.5; animation:tw 4s infinite ease-in-out; }
+  @keyframes tw { 0%,100%{opacity:.15} 50%{opacity:.7} }
+
+  .stage {
+    position:relative;
+    height:min(100vh - 44px, (100vw - 44px) * 16 / 9);
+    aspect-ratio:9 / 16;
+    border-radius:22px; overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08);
+    background:#000;
+  }
+
+  /* ---------- screens ---------- */
+  .screen { position:absolute; inset:0; opacity:0; pointer-events:none; transition:opacity .55s ease; }
+  .screen.active { opacity:1; pointer-events:auto; }
+  .screen .bg { position:absolute; inset:0; background-size:cover; background-position:center; }
+  .screen .scrim { position:absolute; inset:0; background:linear-gradient(180deg, rgba(5,10,25,0.28) 0%, transparent 22%, transparent 62%, rgba(3,6,15,0.82) 100%); }
+
+  /* ---------- top bar: progress + time ---------- */
+  .topbar {
+    position:absolute; top:0; left:0; right:0; z-index:20;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px 10px;
+    opacity:0; pointer-events:none; transform:translateY(-8px);
+    transition:opacity .5s ease, transform .5s ease;
+  }
+  .stage.ch1 .topbar { opacity:1; pointer-events:auto; transform:none; }
+  .progress { display:flex; gap:7px; align-items:center; }
+  .pseg {
+    width:30px; height:7px; border-radius:6px;
+    background:rgba(255,255,255,0.16);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.12);
+    transition:background .4s ease, box-shadow .4s ease;
+  }
+  .pseg.on {
+    background:linear-gradient(90deg,#f5c76a,#ffd98a);
+    box-shadow:0 0 10px rgba(245,199,106,0.8);
+  }
+  .plabel { font-size:11px; color:rgba(255,255,255,0.85); margin-left:4px; letter-spacing:1px; }
+  .clock {
+    display:flex; align-items:center; gap:6px;
+    font-size:12px; color:#ffe9b8; letter-spacing:1px;
+    background:rgba(10,16,32,0.5); border:1px solid rgba(255,220,150,0.25);
+    padding:4px 9px; border-radius:20px; backdrop-filter:blur(3px);
+  }
+  .clock .moon { width:9px; height:9px; border-radius:50%; background:radial-gradient(circle at 32% 32%, #fff3cf, #f5c76a); box-shadow:0 0 6px rgba(245,199,106,0.9); }
+
+  /* ---------- title on cover ---------- */
+  .titleblock {
+    position:absolute; top:6%; left:0; right:0; z-index:15; text-align:center;
+    opacity:0; transform:translateY(-10px); transition:opacity .9s ease .3s, transform .9s ease .3s;
+  }
+  .screen.active .titleblock { opacity:1; transform:none; }
+  .titleblock .t1 {
+    font-family:"STKaiti","KaiTi","Kaiti SC",serif;
+    font-size:clamp(26px, 8vw, 44px); color:#fff7e0;
+    letter-spacing:10px; text-indent:10px;
+    text-shadow:0 2px 18px rgba(0,0,0,0.55), 0 0 30px rgba(245,199,106,0.35);
+    font-weight:700;
+  }
+  .titleblock .t2 {
+    margin-top:10px; font-size:clamp(11px, 3vw, 14px); color:#ffe9b8;
+    letter-spacing:6px; text-indent:6px; opacity:0.95;
+    text-shadow:0 1px 8px rgba(0,0,0,0.6);
+  }
+
+  /* ---------- caption ---------- */
+  .caption {
+    position:absolute; left:0; right:0; bottom:0; z-index:18;
+    padding:0 20px 26px; text-align:center;
+    font-family:"STKaiti","KaiTi","Kaiti SC",serif;
+    font-size:clamp(15px, 4.4vw, 20px); line-height:1.85; color:#fff;
+    text-shadow:0 1px 6px rgba(0,0,0,0.75), 0 0 14px rgba(0,0,0,0.4);
+    white-space:pre-line; letter-spacing:1px;
+  }
+
+  /* ---------- hint ---------- */
+  .hint {
+    position:absolute; bottom:8px; left:0; right:0; z-index:18;
+    text-align:center; font-size:11px; color:rgba(255,255,255,0.62); letter-spacing:2px;
+    opacity:0; transition:opacity .5s ease;
+  }
+  .screen.active .hint.show { opacity:1; animation:bob 2.2s infinite ease-in-out; }
+  @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(3px)} }
+
+  /* ---------- choices ---------- */
+  .choices { position:absolute; left:0; right:0; bottom:96px; z-index:25; display:flex; flex-direction:column; gap:12px; padding:0 22px; }
+  .choice {
+    display:block; width:100%; text-align:center;
+    padding:15px 12px; border-radius:14px; cursor:pointer;
+    font-size:clamp(14px, 4vw, 17px); line-height:1.55; color:#fff;
+    font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+    background:linear-gradient(180deg, rgba(15,24,48,0.82), rgba(8,13,30,0.86));
+    border:1px solid rgba(245,199,106,0.5);
+    box-shadow:0 6px 22px rgba(0,0,0,0.4), inset 0 0 20px rgba(245,199,106,0.06);
+    backdrop-filter:blur(4px);
+    opacity:0; transform:translateY(14px);
+    transition:transform .35s ease, box-shadow .25s ease, background .25s ease, opacity .35s ease;
+  }
+  .stage.choices-on .choice { opacity:1; transform:none; }
+  .choice:nth-child(1){ transition-delay:.15s; }
+  .choice:nth-child(2){ transition-delay:.28s; }
+  .choice:hover { background:linear-gradient(180deg, rgba(30,44,84,0.9), rgba(14,22,46,0.92)); box-shadow:0 8px 26px rgba(0,0,0,0.5), 0 0 18px rgba(245,199,106,0.25); transform:translateY(-1px); }
+  .choice:active { transform:scale(0.98); }
+  .choice .tag { display:block; font-size:11px; color:#f5c76a; letter-spacing:3px; margin-bottom:5px; }
+
+  /* ---------- go-home button ---------- */
+  .go-btn {
+    position:absolute; left:0; right:0; bottom:96px; z-index:25;
+    margin:0 auto; width:min(220px, 62%);
+    padding:15px 0; border-radius:30px; cursor:pointer; text-align:center;
+    font-size:clamp(15px, 4.4vw, 18px); letter-spacing:4px; color:#1a1204; font-weight:700;
+    background:linear-gradient(180deg,#ffe3a0,#f0b954);
+    border:1px solid #fff2ce;
+    box-shadow:0 8px 28px rgba(245,199,106,0.45), 0 0 30px rgba(245,199,106,0.3);
+    opacity:0; transform:translateY(16px); pointer-events:none;
+    transition:opacity .5s ease .2s, transform .5s ease .2s, box-shadow .25s ease;
+  }
+  .stage.go-on .go-btn { opacity:1; transform:none; pointer-events:auto; }
+  .go-btn:hover { box-shadow:0 10px 34px rgba(245,199,106,0.6), 0 0 44px rgba(245,199,106,0.4); }
+  .go-btn:active { transform:scale(0.97); }
+
+  /* ---------- ending ---------- */
+  .screen.end .bg {
+    background:
+      radial-gradient(360px 360px at 50% 26%, rgba(255,226,160,0.9), rgba(245,199,106,0.35) 42%, transparent 68%),
+      radial-gradient(1400px 900px at 50% 110%, rgba(26,46,92,0.9), transparent 65%),
+      linear-gradient(180deg,#0a1430 0%, #0d1a3a 55%, #1b2f5c 100%);
+  }
+  .endcard {
+    position:absolute; inset:0; z-index:16; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:0 30px; color:#fff;
+    opacity:0; transition:opacity 1s ease .4s;
+  }
+  .screen.end.active .endcard { opacity:1; }
+  .endcard .emoon { width:74px; height:74px; border-radius:50%; margin-bottom:26px;
+    background:radial-gradient(circle at 34% 32%, #fff6d8, #f2c467 70%);
+    box-shadow:0 0 46px rgba(245,199,106,0.8), 0 0 90px rgba(245,199,106,0.35);
+    animation:breath 4s infinite ease-in-out; }
+  @keyframes breath { 0%,100%{box-shadow:0 0 40px rgba(245,199,106,0.7),0 0 80px rgba(245,199,106,0.3)} 50%{box-shadow:0 0 56px rgba(245,199,106,0.95),0 0 110px rgba(245,199,106,0.45)} }
+  .endcard .et {
+    font-family:"STKaiti","KaiTi","Kaiti SC",serif;
+    font-size:clamp(28px, 8.5vw, 46px); letter-spacing:12px; text-indent:12px;
+    color:#fff6dc; text-shadow:0 2px 20px rgba(0,0,0,0.5), 0 0 34px rgba(245,199,106,0.4);
+  }
+  .endcard .es {
+    margin-top:14px; font-family:"STKaiti","KaiTi","Kaiti SC",serif;
+    font-size:clamp(14px,4.2vw,18px); color:#ffedc4; letter-spacing:4px;
+  }
+  .endcard .eline { width:60%; height:1px; margin:26px 0; background:linear-gradient(90deg, transparent, rgba(245,199,106,0.7), transparent); }
+  .endcard .ewish {
+    font-family:"STKaiti","KaiTi","Kaiti SC",serif;
+    font-size:clamp(13px,4vw,16px); line-height:2.1; color:rgba(255,255,255,0.86); letter-spacing:2px;
+  }
+  .endcard .replay {
+    margin-top:34px; padding:13px 46px; border-radius:30px; cursor:pointer;
+    font-size:clamp(14px,4.2vw,16px); letter-spacing:5px; color:#1a1204; font-weight:700;
+    background:linear-gradient(180deg,#ffe3a0,#f0b954); border:1px solid #fff2ce;
+    box-shadow:0 8px 28px rgba(245,199,106,0.45);
+    transition:box-shadow .25s ease, transform .2s ease;
+  }
+  .endcard .replay:hover { box-shadow:0 10px 36px rgba(245,199,106,0.6); }
+  .endcard .replay:active { transform:scale(0.97); }
+
+  .fadecover { position:absolute; inset:0; z-index:40; background:#050a16; opacity:0; pointer-events:none; transition:opacity .5s ease; }
+  .fadecover.on { opacity:1; pointer-events:auto; }
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+
+<div class="stage" id="stage">
+  <!-- screens injected by JS -->
+  <div class="topbar">
+    <div class="progress">
+      <div class="pseg" id="p1"></div>
+      <div class="pseg" id="p2"></div>
+      <div class="pseg" id="p3"></div>
+      <span class="plabel">中秋待办</span>
+    </div>
+    <div class="clock"><span class="moon"></span><span id="clocktime">--:--</span></div>
+  </div>
+
+  <div class="choices" id="choices"></div>
+  <div class="go-btn" id="gobtn">下班回家</div>
+  <div class="fadecover" id="fade"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var IMG = "images/";
+  var stage = document.getElementById("stage");
+  var choicesBox = document.getElementById("choices");
+  var goBtn = document.getElementById("gobtn");
+  var fade = document.getElementById("fade");
+  var clock = document.getElementById("clocktime");
+
+  // ---------- data ----------
+  var DATA = {
+    s1: {img:"s01_cover.jpg", time:"", type:"tap", cover:true,
+         caption:"中秋夜，\n有一盏灯，还亮着"},
+    s2: {img:"s02_mother.jpg", time:"16:00", type:"tap",
+         caption:"山里人过中秋，总要早早备好饭菜\n母亲拨通了那个熟悉的号码——\n可电话那头，始终是忙音"},
+    s3: {img:"s03_office.jpg", time:"16:30", type:"choice", ch1:true,
+         caption:"三件事，都等着他\n中秋的月亮不会等人，\n可案子，也不会"},
+    s4_daogu: {img:"s04_daogu.jpg", time:"17:00", type:"tap",
+         caption:"云横秦岭家何在？\n韩愈的诗句他背得熟，\n可蓝关古道上的界桩该立在哪儿，\n他更得写清楚"},
+    s4_zhandi: {img:"s04_zhandi.jpg", time:"17:00", type:"tap",
+         caption:"6.1亩基本农田，被采挖砂石毁坏\n他要让破坏者付出代价，\n也要让这片土地，有机会重新长出庄稼"},
+    s5: {img:"s05_office2.jpg", time:"18:30", type:"choice", ch2:true,
+         caption:"刚发走一份，还有两份\n母亲的电话又来了——\n可他还没到能接的时候"},
+    s6_zhandi: {img:"s04_zhandi.jpg", time:"19:00", type:"tap",
+         caption:"6.1亩基本农田，被采挖砂石毁坏\n他要让破坏者付出代价，\n也要让这片土地，有机会重新长出庄稼"},
+    s6_daogu: {img:"s04_daogu.jpg", time:"19:00", type:"tap",
+         caption:"云横秦岭家何在？\n韩愈的诗句他背得熟，\n可蓝关古道上的界桩该立在哪儿，\n他更得写清楚"},
+    s6_gushu: {img:"s06_gushu.jpg", time:"19:00", type:"tap",
+         caption:"一棵千年古树，\n见证过多少个月圆\n他要让它们继续见证下去"},
+    s7: {img:"s07_office3.jpg", time:"20:00", type:"choice", ch3:true,
+         caption:"最后一件了\n做完，就能回家"},
+    s8_gushu: {img:"s06_gushu.jpg", time:"20:30", type:"tap",
+         caption:"一棵千年古树，\n见证过多少个月圆\n他要让它们继续见证下去"},
+    s8_archive: {img:"s08_archive.jpg", time:"20:30", type:"tap",
+         caption:"三件事，件件有着落\n心里那块石头，终于放下了"},
+    s9: {img:"s09_leave.jpg", time:"21:00", type:"gobtn",
+         caption:"三件事，做完了\n现在，该去赴一场迟到的团圆"},
+    s10: {img:"s10_kitchen.jpg", time:"21:30", type:"tap",
+         caption:"有些等待，不必说出口\n就像灶膛里的余火，\n一直替远方的人，温着家的味道"},
+    s11: {img:"s11_drive.jpg", time:"22:00", type:"tap",
+         caption:"从检察院到老家，\n路不算远，却走了一整个中秋\n好在月亮从不催促，\n它只是静静地，为归人照亮"},
+    s12: {img:"s12_gate.jpg", time:"22:30", type:"tap",
+         caption:"没有多余的寒暄\n母亲把月饼递过来，\n儿子接过，咬了一口——\n所有亏欠，都在那一刻咽下"},
+    s13: {img:"s13_moon.jpg", time:"深夜", type:"tap",
+         caption:"人有忙碌，月有圆缺\n但对公平正义的坚守，\n对亲人归家的期盼，\n从未改变"}
+  };
+
+  var STATE = { daogu:false, zhandi:false, gushu:false, count:0 };
+  var cur = null;
+
+  // ---------- build screens ----------
+  var order = ["s1","s2","s3","s4_daogu","s4_zhandi","s5","s6_zhandi","s6_daogu","s6_gushu",
+               "s7","s8_gushu","s8_archive","s9","s10","s11","s12","s13","end"];
+  order.forEach(function(id){
+    var div = document.createElement("div");
+    div.className = "screen" + (id === "end" ? " end" : "");
+    div.id = "sc-" + id;
+    if (id === "end") {
+      var card = document.createElement("div");
+      card.className = "endcard";
+      card.innerHTML =
+        '<div class="emoon"></div>' +
+        '<div class="et">一轮月，万家灯</div>' +
+        '<div class="es">—— 完 ——</div>' +
+        '<div class="eline"></div>' +
+        '<div class="ewish">愿每一盏为公正而亮的灯，<br>都有归途；愿每一份迟到的团圆，<br>都还不算太晚</div>' +
+        '<div class="replay" id="replaybtn">再看一遍</div>';
+      div.appendChild(card);
+    } else {
+      var d = DATA[id];
+      var bg = document.createElement("div");
+      bg.className = "bg";
+      bg.style.backgroundImage = "url('" + IMG + d.img + "')";
+      div.appendChild(bg);
+      if (!d.cover) {
+        var sc = document.createElement("div");
+        sc.className = "scrim";
+        div.appendChild(sc);
+      }
+      if (d.cover) {
+        var tb = document.createElement("div");
+        tb.className = "titleblock";
+        tb.innerHTML = '<div class="t1">一轮月，万家灯</div><div class="t2">中秋夜 · 秦岭北麓 · 一名检察人的守候</div>';
+        div.appendChild(tb);
+      }
+      if (d.caption) {
+        var cap = document.createElement("div");
+        cap.className = "caption";
+        cap.textContent = d.caption;
+        div.appendChild(cap);
+      }
+      if (d.type === "tap") {
+        var hint = document.createElement("div");
+        hint.className = "hint show";
+        hint.textContent = "轻触画面 · 继续";
+        div.appendChild(hint);
+      }
+    }
+    stage.appendChild(div);
+  });
+
+  // ---------- preload ----------
+  Object.keys(DATA).forEach(function(k){
+    var im = new Image();
+    im.src = IMG + DATA[k].img;
+  });
+
+  // ---------- render ----------
+  function setProgress(){
+    document.getElementById("p1").classList.toggle("on", STATE.count >= 1);
+    document.getElementById("p2").classList.toggle("on", STATE.count >= 2);
+    document.getElementById("p3").classList.toggle("on", STATE.count >= 3);
+  }
+
+  function goto(id){
+    var old = cur;
+    cur = id;
+    if (old) {
+      var o = document.getElementById("sc-" + old);
+      if (o) o.classList.remove("active");
+    }
+    var el = document.getElementById("sc-" + id);
+    if (el) el.classList.add("active");
+
+    // chapter1 topbar
+    var ch1 = ["s3","s4_daogu","s4_zhandi","s5","s6_zhandi","s6_daogu","s6_gushu","s7","s8_gushu","s8_archive","s9"].indexOf(id) >= 0;
+    stage.classList.toggle("ch1", ch1);
+    stage.classList.remove("choices-on","go-on");
+
+    // clock
+    if (id === "end") { clock.textContent = "--:--"; }
+    else if (DATA[id]) { clock.textContent = DATA[id].time || "--:--"; }
+
+    // choices / buttons
+    choicesBox.innerHTML = "";
+    goBtn.style.display = "none";
+    if (DATA[id] && DATA[id].type === "choice") renderChoices(id);
+    if (DATA[id] && DATA[id].type === "gobtn") {
+      goBtn.style.display = "block";
+      stage.classList.add("go-on");
+    }
+  }
+
+  function choiceBtn(label, tag, fn){
+    var b = document.createElement("button");
+    b.className = "choice";
+    if (tag) b.innerHTML = '<span class="tag">' + tag + '</span>' + label;
+    else b.textContent = label;
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      fn();
+    });
+    choicesBox.appendChild(b);
+  }
+
+  function renderChoices(id){
+    if (id === "s3") {
+      choiceBtn("先把检察建议定稿，古道保护拖不得", "选项 A", function(){
+        STATE.daogu = true; STATE.count = 1; setProgress(); goto("s4_daogu");
+      });
+      choiceBtn("起诉意见书今天必须发出", "选项 B", function(){
+        STATE.zhandi = true; STATE.count = 1; setProgress(); goto("s4_zhandi");
+      });
+    } else if (id === "s5") {
+      if (!STATE.zhandi) {
+        choiceBtn("接着写刚才没选的那份文书", "选项 A", function(){
+          STATE.zhandi = true; STATE.count = 2; setProgress(); goto("s6_zhandi");
+        });
+      } else {
+        choiceBtn("接着写刚才没选的那份文书", "选项 A", function(){
+          STATE.daogu = true; STATE.count = 2; setProgress(); goto("s6_daogu");
+        });
+      }
+      choiceBtn("先弄古树名木报告，那个也催得紧", "选项 B", function(){
+        STATE.gushu = true; STATE.count = 2; setProgress(); goto("s6_gushu");
+      });
+    } else if (id === "s7") {
+      var remaining = !STATE.gushu ? "gushu" : (!STATE.daogu ? "daogu" : "zhandi");
+      var labelA = remaining === "gushu" ? "把最后那份报告写完提交" : "把最后那份文书写完提交";
+      choiceBtn(labelA, "选项 A", function(){
+        STATE[remaining] = true; STATE.count = 3; setProgress();
+        goto(remaining === "gushu" ? "s8_gushu" : "s8_archive");
+      });
+      choiceBtn("再仔细复核一遍，归档", "选项 B", function(){
+        STATE[remaining] = true; STATE.count = 3; setProgress();
+        goto(remaining === "gushu" ? "s8_gushu" : "s8_archive");
+      });
+    }
+    stage.classList.add("choices-on");
+  }
+
+  // ---------- navigation ----------
+  function next(){
+    if (!cur) return;
+    if (cur === "s1") goto("s2");
+    else if (cur === "s2") goto("s3");
+    else if (cur === "s4_daogu" || cur === "s4_zhandi") goto("s5");
+    else if (cur === "s6_zhandi" || cur === "s6_daogu" || cur === "s6_gushu") goto("s7");
+    else if (cur === "s8_gushu" || cur === "s8_archive") goto("s9");
+    else if (cur === "s9") return; // only via go-home button
+    else if (cur === "s10") goto("s11");
+    else if (cur === "s11") goto("s12");
+    else if (cur === "s12") goto("s13");
+    else if (cur === "s13") goto("end");
+  }
+
+  // tap on stage advances only for tap screens
+  stage.addEventListener("click", function(e){
+    if (!cur) return;
+    var d = DATA[cur];
+    if (d && d.type === "tap") next();
+  });
+
+  goBtn.addEventListener("click", function(e){
+    e.stopPropagation();
+    goto("s10");
+  });
+
+  document.getElementById("replaybtn").addEventListener("click", function(e){
+    e.stopPropagation();
+    STATE.daogu = false; STATE.zhandi = false; STATE.gushu = false; STATE.count = 0;
+    setProgress();
+    goto("s1");
+  });
+
+  // ---------- stars ----------
+  (function(){
+    var box = document.getElementById("stars");
+    for (var i = 0; i < 70; i++) {
+      var s = document.createElement("div");
+      s.className = "star";
+      s.style.left = Math.random()*100 + "%";
+      s.style.top = Math.random()*100 + "%";
+      s.style.animationDelay = (Math.random()*4) + "s";
+      s.style.animationDuration = (3 + Math.random()*4) + "s";
+      var sz = Math.random()*1.8 + 1;
+      s.style.width = sz + "px"; s.style.height = sz + "px";
+      box.appendChild(s);
+    }
+  })();
+
+  // ---------- start ----------
+  setProgress();
+  goto("s1");
+})();
+</script>
+</body>
+</html>
